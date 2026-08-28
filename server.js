@@ -195,6 +195,11 @@ async function handleMediaStream(twilioWs, url) {
   xaiWs.on('message', (data) => {
     const event = JSON.parse(data.toString());
     
+    // Log all xAI events for debugging
+    if (event.type !== 'session.updated') {
+      console.log(`xAI event: ${event.type}`, event.type === 'error' ? JSON.stringify(event) : '');
+    }
+    
     // Forward audio from xAI to Twilio (convert PCM to mulaw)
     if (event.type === 'response.audio.delta' && twilioWs.readyState === WebSocket.OPEN) {
       // xAI sends base64-encoded PCM, Twilio expects base64-encoded mulaw
