@@ -23,7 +23,7 @@ app.post('/twiml', (req, res) => {
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://${req.headers.host}/media-stream" contentType="audio/L16;rate=8000;encoding=base64">
+    <Stream url="wss://${req.headers.host}/media-stream">
       <Parameter name="context" value="${encodeURIComponent(JSON.stringify(ctx))}" />
     </Stream>
   </Connect>
@@ -141,8 +141,10 @@ async function handleMediaStream(twilioWs, url) {
         voice: 'eve',
         instructions: `Eres un agente de ventas de CreativeMk en Nicaragua. SIEMPRE habla en español. Sé amable y profesional. ${contextMsg}`,
         turn_detection: { type: 'server_vad' },
-        input_audio_format: "pcm_8000",
-        output_audio_format: "pcm_8000",
+        audio: {
+          input: { format: { type: 'audio/pcmu' } },
+          output: { format: { type: 'audio/pcmu' } }
+        }
       }
     }));
 
