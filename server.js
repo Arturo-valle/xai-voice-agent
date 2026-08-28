@@ -15,55 +15,19 @@ const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_NUMBER = process.env.TWILIO_NUMBER || '+17543546876';
 const PORT = process.env.PORT || 3000;
 
-// Mulaw to PCM conversion table
-const MULAW_TO_PCM = new Int16Array(256);
-(() => {
-  for (let i = 0; i < 256; i++) {
-    let mu = ~i & 0xFF;
-    let sign = (mu & 0x80) ? -1 : 1;
-    let exponent = (mu >> 4) & 0x07;
-    let mantissa = mu & 0x0F;
-    let sample = ((mantissa << 1) + 33) << (exponent + 2);
-    sample -= 0x84;
-    MULAW_TO_PCM[i] = sign * sample;
-  }
-})();
+app.get('/', (req, res) => res.json({ status: 'ok', service: 'xai-voice-agent' }));
 
-// PCM to Mulaw conversion
-function pcmToMulaw(pcm) {
-  const MULAW_MAX = 0x1FFF;
-  const MULAW_BIAS = 0x84;
-  const sign = pcm < 0 ? 0x80 : 0;
-  if (sign) pcm = -pcm;
-  if (pcm > MULAW_MAX) pcm = MULAW_MAX;
-  pcm += MULAW_BIAS;
-  let exponent = 7;
-  for (let expMask = 0x4000; exponent > 0; exponent--, expMask >>= 1) {
-    if (pcm & expMask) break;
-  }
-  const mantissa = (pcm >> (exponent + 3)) & 0x0F;
-  const mulaw = ~(sign | (exponent << 4) | mantissa) & 0xFF;
-  return mulaw;
-}
-
-// Health check
-app.get('/', (req, res) => {
-  res.json({ status: 'ok', service: 'xai-voice-agent' });
-});
-
-// Twilio webhook for outbound calls
+// TwiML with PCM format (no mulaw conversion needed)
 app.post('/twiml', (req, res) => {
   const ctx = req.query.ctx ? JSON.parse(decodeURIComponent(req.query.ctx)) : {};
-  
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://${req.headers.host}/media-stream" contentType="audio/x-mulaw;rate=8000;encoding=base64">
+    <Stream url="wss://${req.headers.host}/media-stream" contentType="audio/L16;rate=8000;encoding=base64">
       <Parameter name="context" value="${encodeURIComponent(JSON.stringify(ctx))}" />
     </Stream>
   </Connect>
 </Response>`;
-
   res.type('text/xml').send(twiml);
 });
 
@@ -141,13 +105,10 @@ app.post('/call-batch', async (req, res) => {
   res.json({ total: leads.length, successful: results.filter(r => r.success).length, results });
 });
 
-// WebSocket handler for Twilio Media Streams
+// WebSocket handler
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  
-  if (url.pathname === '/media-stream') {
-    handleMediaStream(ws, url);
-  }
+  if (url.pathname === '/media-stream') handleMediaStream(ws, url);
 });
 
 async function handleMediaStream(twilioWs, url) {
@@ -155,7 +116,6 @@ async function handleMediaStream(twilioWs, url) {
 
   let xaiWs = null;
   let streamSid = null;
-  let callSid = null;
   let context = {};
 
   const ctxParam = url.searchParams.get('ctx');
@@ -163,7 +123,7 @@ async function handleMediaStream(twilioWs, url) {
     try { context = JSON.parse(decodeURIComponent(ctxParam)); } catch {}
   }
 
-  // Connect to xAI Realtime API
+  // Connect to xAI
   xaiWs = new WebSocket('wss://api.x.ai/v1/realtime?model=grok-voice-latest', {
     headers: { 'Authorization': `Bearer ${XAI_API_KEY}` }
   });
@@ -172,22 +132,20 @@ async function handleMediaStream(twilioWs, url) {
     console.log('Connected to xAI');
     
     const contextMsg = context.nombre 
-      ? `Estás llamando a ${context.nombre} de ${context.empresa || 'una empresa'}. Servicio de interés: ${context.servicio || 'marketing digital'}. Preséntate como agente de CreativeMk y pregunta si tienen un momento para platicar.`
+      ? `Estás llamando a ${context.nombre} de ${context.empresa || 'una empresa'}. Servicio de interés: ${context.servicio || 'marketing digital'}. Preséntate como agente de CreativeMk.`
       : '';
 
-    // Configure session with mulaw format to match Twilio
     xaiWs.send(JSON.stringify({
       type: 'session.update',
       session: {
         voice: 'eve',
-        instructions: `Eres un agente de ventas de CreativeMk, una agencia de marketing digital en Nicaragua. SIEMPRE habla en español. Sé amable, profesional y conciso. ${contextMsg} Si no entienden algo, explícalo de forma simple. Si no están interesados, agradece y despídete.`,
+        instructions: `Eres un agente de ventas de CreativeMk en Nicaragua. SIEMPRE habla en español. Sé amable y profesional. ${contextMsg}`,
         turn_detection: { type: 'server_vad' },
         input_audio_format: "pcm_8000",
         output_audio_format: "pcm_8000",
       }
     }));
 
-    // Trigger agent to start speaking
     xaiWs.send(JSON.stringify({ type: 'response.create' }));
     console.log('Session configured, response.create sent');
   });
@@ -195,38 +153,28 @@ async function handleMediaStream(twilioWs, url) {
   xaiWs.on('message', (data) => {
     const event = JSON.parse(data.toString());
     
-    // Log all xAI events for debugging
-    if (event.type !== 'session.updated') {
-      console.log(`xAI event: ${event.type}`, event.type === 'error' ? JSON.stringify(event) : '');
+    if (event.type !== 'session.updated' && event.type !== 'ping') {
+      console.log(`xAI: ${event.type}`);
     }
     
-    // Forward audio from xAI to Twilio (convert PCM to mulaw)
+    // Forward audio from xAI to Twilio (PCM passthrough)
     if (event.type === 'response.output_audio.delta' && twilioWs.readyState === WebSocket.OPEN) {
-      // xAI sends base64-encoded PCM, Twilio expects base64-encoded mulaw
-      const pcmBuffer = Buffer.from(event.delta, 'base64');
-      const mulawBuffer = Buffer.alloc(pcmBuffer.length / 2);
-      
-      for (let i = 0; i < mulawBuffer.length; i++) {
-        const pcmSample = pcmBuffer.readInt16LE(i * 2);
-        mulawBuffer[i] = pcmToMulaw(pcmSample);
-      }
-      
       twilioWs.send(JSON.stringify({
         event: 'media',
         streamSid: streamSid,
-        media: { payload: mulawBuffer.toString('base64') }
+        media: { payload: event.delta }
       }));
     }
 
     if (event.type === 'error') {
-      console.error('xAI error:', event);
+      console.error('xAI error:', JSON.stringify(event));
     }
   });
 
   xaiWs.on('error', (err) => console.error('xAI WS error:', err.message));
   xaiWs.on('close', () => console.log('xAI WS closed'));
 
-  // Handle Twilio Media Stream events
+  // Handle Twilio events
   twilioWs.on('message', (data) => {
     const msg = JSON.parse(data.toString());
 
@@ -234,31 +182,19 @@ async function handleMediaStream(twilioWs, url) {
       case 'connected':
         console.log('Twilio stream connected');
         break;
-      
       case 'start':
         streamSid = msg.start.streamSid;
-        callSid = msg.start.callSid;
-        console.log(`Stream started: ${streamSid}, Call: ${callSid}`);
+        console.log(`Stream started: ${streamSid}`);
         break;
-      
       case 'media':
-        // Convert mulaw to PCM and forward to xAI
+        // Forward audio from Twilio to xAI (PCM passthrough)
         if (xaiWs?.readyState === WebSocket.OPEN) {
-          const mulawBuffer = Buffer.from(msg.media.payload, 'base64');
-          const pcmBuffer = Buffer.alloc(mulawBuffer.length * 2);
-          
-          for (let i = 0; i < mulawBuffer.length; i++) {
-            const pcmSample = MULAW_TO_PCM[mulawBuffer[i]];
-            pcmBuffer.writeInt16LE(pcmSample, i * 2);
-          }
-          
           xaiWs.send(JSON.stringify({
             type: 'input_audio_buffer.append',
-            audio: pcmBuffer.toString('base64')
+            audio: msg.media.payload
           }));
         }
         break;
-      
       case 'stop':
         console.log('Stream stopped');
         if (xaiWs?.readyState === WebSocket.OPEN) xaiWs.close();
@@ -267,13 +203,11 @@ async function handleMediaStream(twilioWs, url) {
   });
 
   twilioWs.on('close', () => {
-    console.log('Twilio stream disconnected');
+    console.log('Twilio disconnected');
     if (xaiWs?.readyState === WebSocket.OPEN) xaiWs.close();
   });
 
   twilioWs.on('error', (err) => console.error('Twilio WS error:', err.message));
 }
 
-server.listen(PORT, () => {
-  console.log(`Voice Agent running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Voice Agent running on port ${PORT}`));
