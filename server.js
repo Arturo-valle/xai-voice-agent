@@ -182,8 +182,8 @@ async function handleMediaStream(twilioWs, url) {
         voice: 'eve',
         instructions: `Eres un agente de ventas de CreativeMk, una agencia de marketing digital en Nicaragua. SIEMPRE habla en español. Sé amable, profesional y conciso. ${contextMsg} Si no entienden algo, explícalo de forma simple. Si no están interesados, agradece y despídete.`,
         turn_detection: { type: 'server_vad' },
-        input_audio_format: { type: 'audio/pcm', rate: 8000 },
-        output_audio_format: { type: 'audio/pcm', rate: 8000 },
+        input_audio_format: "pcm_8000",
+        output_audio_format: "pcm_8000",
       }
     }));
 
@@ -201,7 +201,7 @@ async function handleMediaStream(twilioWs, url) {
     }
     
     // Forward audio from xAI to Twilio (convert PCM to mulaw)
-    if (event.type === 'response.audio.delta' && twilioWs.readyState === WebSocket.OPEN) {
+    if (event.type === 'response.output_audio.delta' && twilioWs.readyState === WebSocket.OPEN) {
       // xAI sends base64-encoded PCM, Twilio expects base64-encoded mulaw
       const pcmBuffer = Buffer.from(event.delta, 'base64');
       const mulawBuffer = Buffer.alloc(pcmBuffer.length / 2);
