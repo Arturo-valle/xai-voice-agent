@@ -186,6 +186,10 @@ async function handleMediaStream(twilioWs, url) {
         output_audio_format: { type: 'audio/pcm', rate: 8000 },
       }
     }));
+
+    // Trigger agent to start speaking
+    xaiWs.send(JSON.stringify({ type: 'response.create' }));
+    console.log('Session configured, response.create sent');
   });
 
   xaiWs.on('message', (data) => {
