@@ -1,0 +1,12 @@
+version: '3.8'
+services:
+  voice-agent:
+    build: .
+    ports:
+      - "3001:3000"
+    environment:
+      - XAI_API_KEY=${XAI_API_KEY}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_NUMBER=${TWILIO_NUMBER}
+    restart: unless-stopped
