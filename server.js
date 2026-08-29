@@ -221,6 +221,12 @@ async function handleMediaStream(twilioWs, url) {
     if (event.type === 'error') {
       console.error('xAI error:', JSON.stringify(event));
     }
+
+    // Barge-in: cancel agent response when user starts speaking
+    if (event.type === 'input_audio_buffer.speech_started' && xaiWs?.readyState === WebSocket.OPEN) {
+      xaiWs.send(JSON.stringify({ type: 'response.cancel' }));
+      console.log('Barge-in: response.cancel sent');
+    }
   });
 
   xaiWs.on('error', (err) => console.error('xAI WS error:', err.message));
@@ -239,7 +245,8 @@ async function handleMediaStream(twilioWs, url) {
         console.log(`Stream started: ${streamSid}`);
         break;
       case 'media':
-        if (xaiWs?.readyState === WebSocket.OPEN) {
+        // Only forward inbound track (caller's voice) to xAI
+        if (msg.media.track === 'inbound' && xaiWs?.readyState === WebSocket.OPEN) {
           xaiWs.send(JSON.stringify({
             type: 'input_audio_buffer.append',
             audio: msg.media.payload
