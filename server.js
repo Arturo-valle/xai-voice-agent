@@ -170,6 +170,7 @@ async function handleMediaStream(twilioWs, url) {
   let context = {};
   let userSpeaking = false;
   let firstAudioSent = false;
+  let responseActive = false;
 
   const ctxParam = url.searchParams.get('ctx');
   if (ctxParam) {
@@ -213,21 +214,32 @@ async function handleMediaStream(twilioWs, url) {
       console.log(`xAI: ${event.type} (+${ts - t0}ms)`);
     }
     
-    // Track latency milestones
-    if (event.type === 'input_audio_buffer.speech_started') {
-      console.log(`LATENCY: user speech detected at +${Date.now() - t0}ms`);
-    }
-    if (event.type === 'input_audio_buffer.committed') {
-      console.log(`LATENCY: speech committed at +${Date.now() - t0}ms`);
-    }
+    // Track response state
     if (event.type === 'response.created') {
+      responseActive = true;
+      firstAudioSent = false;
       console.log(`LATENCY: xAI started generating at +${Date.now() - t0}ms`);
+    }
+    if (event.type === 'response.done') {
+      responseActive = false;
     }
     if (event.type === 'response.output_audio.delta' && !firstAudioSent) {
       firstAudioSent = true;
       console.log(`LATENCY: first audio chunk at +${Date.now() - t0}ms`);
     }
-    
+
+    // Barge-in: cancel agent response when user starts speaking
+    if (event.type === 'input_audio_buffer.speech_started') {
+      userSpeaking = true;
+      if (responseActive && xaiWs?.readyState === WebSocket.OPEN) {
+        xaiWs.send(JSON.stringify({ type: 'response.cancel' }));
+        console.log('Barge-in: canceled active response');
+      }
+    }
+    if (event.type === 'input_audio_buffer.speech_stopped') {
+      userSpeaking = false;
+    }
+
     // Forward audio from xAI to Twilio (amplified, skip while user speaks)
     if (event.type === 'response.output_audio.delta' && !userSpeaking && twilioWs.readyState === WebSocket.OPEN) {
       twilioWs.send(JSON.stringify({
@@ -239,19 +251,6 @@ async function handleMediaStream(twilioWs, url) {
 
     if (event.type === 'error') {
       console.error('xAI error:', JSON.stringify(event));
-    }
-
-    // Barge-in: cancel agent response when user starts speaking
-    if (event.type === 'input_audio_buffer.speech_started') {
-      userSpeaking = true;
-      if (xaiWs?.readyState === WebSocket.OPEN) {
-        xaiWs.send(JSON.stringify({ type: 'response.cancel' }));
-      }
-      console.log('Barge-in: user speaking, response.cancel sent');
-    }
-    if (event.type === 'input_audio_buffer.speech_stopped') {
-      userSpeaking = false;
-      console.log('User stopped speaking');
     }
   });
 
