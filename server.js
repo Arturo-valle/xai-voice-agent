@@ -106,8 +106,6 @@ app.post('/twiml', (req, res) => {
 
     xaiWs.on('open', () => {
       configureXaiSession(xaiWs, ctx);
-      // Send response.create immediately — audio will buffer until stream is ready
-      xaiWs.send(JSON.stringify({ type: 'response.create' }));
       xaiWs._ready = true;
       console.log(`xAI pre-warmed for CallSid=${callSid}`);
     });
