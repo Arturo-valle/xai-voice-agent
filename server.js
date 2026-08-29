@@ -60,19 +60,29 @@ function amplifyUlawBase64(payload, gain) {
 // Configure xAI session and send greeting
 function configureXaiSession(xaiWs, ctx) {
   const contextMsg = ctx.nombre
-    ? `Estás llamando a ${ctx.nombre} de ${ctx.empresa || 'una empresa'}. Servicio de interés: ${ctx.servicio || 'marketing digital'}. Preséntate como agente de CreativeMk.`
+    ? `\n\nCONTEXTO DE LA LLAMADA ACTUAL:\n- Lead: ${ctx.nombre}\n- Empresa: ${ctx.empresa || 'No especificada'}\n- Servicio de interés: ${ctx.servicio || 'No especificado'}\n- Número: ${ctx.to || 'No disponible'}`
     : '';
+
+  const tools = [];
+  if (process.env.XAI_COLLECTION_ID) {
+    tools.push({
+      type: 'file_search',
+      vector_store_ids: [process.env.XAI_COLLECTION_ID],
+      max_num_results: 5,
+    });
+  }
 
   xaiWs.send(JSON.stringify({
     type: 'session.update',
     session: {
-      voice: 'eve',
-      instructions: `Eres un agente de ventas de CreativeMk en Nicaragua. SIEMPRE habla en español. Sé amable y profesional. ${contextMsg}`,
+      voice: process.env.XAI_VOICE || 'ara',
+      instructions: `${process.env.XAI_INSTRUCTIONS || 'Eres un agente de ventas de CreativeMk.'}${contextMsg}`,
       turn_detection: { type: 'server_vad', threshold: 0.5, prefix_padding_ms: 200, silence_duration_ms: 500 },
       audio: {
         input: { format: { type: 'audio/pcmu' }, transport: 'binary' },
         output: { format: { type: 'audio/pcmu' }, transport: 'binary', speed: 1.05 }
-      }
+      },
+      ...(tools.length > 0 && { tools })
     }
   }));
 
