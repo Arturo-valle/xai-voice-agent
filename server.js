@@ -259,9 +259,13 @@ function setupXaiHandlers(xaiWs, twilioWs, t0, state) {
       console.log('Barge-in: cancel + clear');
     }
     if (event.type === 'input_audio_buffer.speech_stopped') {
-      // Don't cancel here — let xAI generate response naturally
       state.userSpeaking = false;
       state.highEnergyChunks = 0;
+      // Explicitly request new response after user stops speaking
+      if (xaiWs.readyState === WebSocket.OPEN) {
+        xaiWs.send(JSON.stringify({ type: 'response.create' }));
+        console.log('speech_stopped → response.create');
+      }
     }
 
     if (event.type === 'response.output_audio.delta' && !state.userSpeaking && twilioWs.readyState === WebSocket.OPEN) {
