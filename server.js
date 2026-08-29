@@ -197,7 +197,7 @@ async function handleMediaStream(twilioWs, url) {
         turn_detection: { type: 'server_vad', threshold: 0.5, prefix_padding_ms: 200, silence_duration_ms: 500 },
         audio: {
           input: { format: { type: 'audio/pcmu' }, transport: 'binary' },
-          output: { format: { type: 'audio/pcmu' }, transport: 'binary', speed: 1.2 }
+          output: { format: { type: 'audio/pcmu' }, transport: 'binary', speed: 1.05 }
         }
       }
     }));
