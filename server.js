@@ -196,8 +196,8 @@ async function handleMediaStream(twilioWs, url) {
         instructions: `Eres un agente de ventas de CreativeMk en Nicaragua. SIEMPRE habla en español. Sé amable y profesional. ${contextMsg}`,
         turn_detection: { type: 'server_vad', threshold: 0.5, prefix_padding_ms: 200, silence_duration_ms: 500 },
         audio: {
-          input: { format: { type: 'audio/pcmu' } },
-          output: { format: { type: 'audio/pcmu' } }
+          input: { format: { type: 'audio/pcmu' }, transport: 'binary' },
+          output: { format: { type: 'audio/pcmu' }, transport: 'binary', speed: 1.2 }
         }
       }
     }));
@@ -206,7 +206,19 @@ async function handleMediaStream(twilioWs, url) {
     console.log('Session configured, response.create sent');
   });
 
-  xaiWs.on('message', (data) => {
+  xaiWs.on('message', (data, isBinary) => {
+    // Binary frames = raw audio from xAI (binary transport)
+    if (isBinary) {
+      if (!userSpeaking && twilioWs.readyState === WebSocket.OPEN && streamSid) {
+        twilioWs.send(JSON.stringify({
+          event: 'media',
+          streamSid: streamSid,
+          media: { payload: amplifyUlawBase64(data.toString('base64'), GAIN) }
+        }));
+      }
+      return;
+    }
+
     const event = JSON.parse(data.toString());
     
     if (event.type !== 'session.updated' && event.type !== 'ping') {
@@ -277,10 +289,9 @@ async function handleMediaStream(twilioWs, url) {
       case 'media':
         // Only forward inbound track (caller's voice) to xAI
         if (msg.media.track === 'inbound' && xaiWs?.readyState === WebSocket.OPEN) {
-          xaiWs.send(JSON.stringify({
-            type: 'input_audio_buffer.append',
-            audio: msg.media.payload
-          }));
+          // Send as binary frame (binary transport)
+          const audioBuf = Buffer.from(msg.media.payload, 'base64');
+          xaiWs.send(audioBuf);
         }
         break;
       case 'stop':
