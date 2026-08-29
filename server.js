@@ -103,6 +103,8 @@ app.post('/twiml', (req, res) => {
 
     xaiWs.on('open', () => {
       configureXaiSession(xaiWs, ctx);
+      // Send response.create immediately — audio will buffer until stream is ready
+      xaiWs.send(JSON.stringify({ type: 'response.create' }));
       xaiWs._ready = true;
       console.log(`xAI pre-warmed for CallSid=${callSid}`);
     });
@@ -315,19 +317,6 @@ async function handleMediaStream(twilioWs, url) {
           xaiWs = prewarmedXai.get(callSid);
           prewarmedXai.delete(callSid);
           console.log(`Using pre-warmed xAI [+${Date.now() - t0}ms]`);
-
-          // If already ready, send response.create immediately
-          if (xaiWs._ready) {
-            xaiWs.send(JSON.stringify({ type: 'response.create' }));
-            console.log(`response.create sent (pre-warmed) [+${Date.now() - t0}ms]`);
-          } else {
-            // Wait for open
-            xaiWs.on('open', () => {
-              xaiWs.send(JSON.stringify({ type: 'response.create' }));
-              console.log(`response.create sent (pre-warmed, delayed) [+${Date.now() - t0}ms]`);
-            });
-          }
-
           setupXaiHandlers(xaiWs, twilioWs, t0, state);
         } else {
           // Fallback: fresh connection
