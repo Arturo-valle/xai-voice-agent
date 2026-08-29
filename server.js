@@ -194,7 +194,7 @@ async function handleMediaStream(twilioWs, url) {
       session: {
         voice: 'eve',
         instructions: `Eres un agente de ventas de CreativeMk en Nicaragua. SIEMPRE habla en español. Sé amable y profesional. ${contextMsg}`,
-        turn_detection: { type: 'server_vad', threshold: 0.3, prefix_padding_ms: 50, silence_duration_ms: 500 },
+        turn_detection: { type: 'server_vad', threshold: 0.5, prefix_padding_ms: 200, silence_duration_ms: 500 },
         audio: {
           input: { format: { type: 'audio/pcmu' } },
           output: { format: { type: 'audio/pcmu' } }
@@ -228,13 +228,18 @@ async function handleMediaStream(twilioWs, url) {
       console.log(`LATENCY: first audio chunk at +${Date.now() - t0}ms`);
     }
 
-    // Barge-in: cancel agent response when user starts speaking
+    // Barge-in: cancel agent response + clear Twilio buffer when user speaks
     if (event.type === 'input_audio_buffer.speech_started') {
       userSpeaking = true;
       if (responseActive && xaiWs?.readyState === WebSocket.OPEN) {
         xaiWs.send(JSON.stringify({ type: 'response.cancel' }));
-        console.log('Barge-in: canceled active response');
+        responseActive = false;
       }
+      // Clear Twilio's audio buffer so agent stops playing immediately
+      if (twilioWs.readyState === WebSocket.OPEN && streamSid) {
+        twilioWs.send(JSON.stringify({ event: 'clear', streamSid }));
+      }
+      console.log('Barge-in: cancel + clear');
     }
     if (event.type === 'input_audio_buffer.speech_stopped') {
       userSpeaking = false;
