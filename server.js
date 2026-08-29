@@ -194,7 +194,7 @@ async function handleMediaStream(twilioWs, url) {
       session: {
         voice: 'eve',
         instructions: `Eres un agente de ventas de CreativeMk en Nicaragua. SIEMPRE habla en español. Sé amable y profesional. ${contextMsg}`,
-        turn_detection: { type: 'server_vad', threshold: 0.3, prefix_padding_ms: 50, silence_duration_ms: 100 },
+        turn_detection: { type: 'server_vad', threshold: 0.3, prefix_padding_ms: 50, silence_duration_ms: 500 },
         audio: {
           input: { format: { type: 'audio/pcmu' } },
           output: { format: { type: 'audio/pcmu' } }
