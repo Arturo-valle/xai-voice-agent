@@ -251,6 +251,12 @@ function setupXaiHandlers(xaiWs, twilioWs, t0, state) {
       console.log('Barge-in: cancel + clear');
     }
     if (event.type === 'input_audio_buffer.speech_stopped') {
+      // If user was speaking (server VAD detected), cancel xAI's old response now
+      if (state.userSpeaking && state.responseActive && xaiWs.readyState === WebSocket.OPEN) {
+        xaiWs.send(JSON.stringify({ type: 'response.cancel' }));
+        state.responseActive = false;
+        console.log('Barge-in: cancel xAI response (user finished speaking)');
+      }
       state.userSpeaking = false;
       state.highEnergyChunks = 0;
     }
@@ -330,8 +336,31 @@ async function handleMediaStream(twilioWs, url) {
           const audioBuf = Buffer.from(msg.media.payload, 'base64');
           xaiWs.send(audioBuf);
 
-          // Server-side VAD disabled — xAI handles turn detection
-          // The server VAD was canceling responses before audio was generated
+          // Server-side VAD: clear Twilio immediately, but don't cancel xAI yet
+          if (state.responseActive && !state.userSpeaking) {
+            let energy = 0;
+            for (let i = 0; i < audioBuf.length; i++) {
+              const pcm = ULAW_TO_PCM[audioBuf[i]];
+              energy += pcm * pcm;
+            }
+            const rms = Math.sqrt(energy / audioBuf.length);
+            const SPEECH_THRESHOLD = 1500;
+            const CHUNKS_NEEDED = 5;
+
+            if (rms > SPEECH_THRESHOLD) {
+              state.highEnergyChunks++;
+              if (state.highEnergyChunks >= CHUNKS_NEEDED) {
+                state.userSpeaking = true;
+                // Clear Twilio buffer — user hears silence immediately
+                if (twilioWs.readyState === WebSocket.OPEN && state.streamSid) {
+                  twilioWs.send(JSON.stringify({ event: 'clear', streamSid: state.streamSid }));
+                }
+                console.log(`Barge-in: clear Twilio (rms=${Math.round(rms)}) [+${Date.now() - t0}ms]`);
+              }
+            } else {
+              state.highEnergyChunks = 0;
+            }
+          }
         }
         break;
 
