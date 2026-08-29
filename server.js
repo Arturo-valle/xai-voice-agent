@@ -291,7 +291,7 @@ async function handleMediaStream(twilioWs, url) {
 
   let xaiWs = null;
   let context = {};
-  const state = { streamSid: null, userSpeaking: false, firstAudioSent: false, responseActive: false, highEnergyChunks: 0 };
+  const state = { streamSid: null, userSpeaking: false, firstAudioSent: false, responseActive: false, highEnergyChunks: 0, lastBargeIn: 0 };
 
   twilioWs.on('message', async (data) => {
     const msg = JSON.parse(data.toString());
@@ -331,21 +331,24 @@ async function handleMediaStream(twilioWs, url) {
           xaiWs.send(audioBuf);
 
           // Server-side energy-based speech detection for barge-in
-          if (state.responseActive) {
+          if (state.responseActive && !state.userSpeaking) {
             let energy = 0;
             for (let i = 0; i < audioBuf.length; i++) {
               const pcm = ULAW_TO_PCM[audioBuf[i]];
               energy += pcm * pcm;
             }
             const rms = Math.sqrt(energy / audioBuf.length);
-            const SPEECH_THRESHOLD = 800; // ponytail: tune based on real audio
-            const CHUNKS_NEEDED = 3;
+            const SPEECH_THRESHOLD = 1500; // ponytail: higher to avoid false positives
+            const CHUNKS_NEEDED = 5;       // ponytail: 100ms of sustained speech
+            const COOLDOWN_MS = 2000;      // ponytail: wait after barge-in
 
+            const now = Date.now();
             if (rms > SPEECH_THRESHOLD) {
               state.highEnergyChunks++;
-              if (state.highEnergyChunks >= CHUNKS_NEEDED && !state.userSpeaking) {
+              if (state.highEnergyChunks >= CHUNKS_NEEDED && (now - state.lastBargeIn) > COOLDOWN_MS) {
                 state.userSpeaking = true;
                 state.responseActive = false;
+                state.lastBargeIn = now;
                 xaiWs.send(JSON.stringify({ type: 'response.cancel' }));
                 if (twilioWs.readyState === WebSocket.OPEN && state.streamSid) {
                   twilioWs.send(JSON.stringify({ event: 'clear', streamSid: state.streamSid }));
