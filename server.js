@@ -168,6 +168,7 @@ async function handleMediaStream(twilioWs, url) {
   let streamSid = null;
   let context = {};
   let userSpeaking = false;
+  let firstAudioSent = false;
 
   const ctxParam = url.searchParams.get('ctx');
   if (ctxParam) {
@@ -191,7 +192,7 @@ async function handleMediaStream(twilioWs, url) {
       session: {
         voice: 'eve',
         instructions: `Eres un agente de ventas de CreativeMk en Nicaragua. SIEMPRE habla en español. Sé amable y profesional. ${contextMsg}`,
-        turn_detection: { type: 'server_vad', threshold: 0.4, prefix_padding_ms: 100, silence_duration_ms: 200 },
+        turn_detection: { type: 'server_vad', threshold: 0.3, prefix_padding_ms: 50, silence_duration_ms: 100 },
         audio: {
           input: { format: { type: 'audio/pcmu' } },
           output: { format: { type: 'audio/pcmu' } }
@@ -207,7 +208,23 @@ async function handleMediaStream(twilioWs, url) {
     const event = JSON.parse(data.toString());
     
     if (event.type !== 'session.updated' && event.type !== 'ping') {
-      console.log(`xAI: ${event.type}`);
+      const ts = Date.now();
+      console.log(`xAI: ${event.type} (+${ts - t0}ms)`);
+    }
+    
+    // Track latency milestones
+    if (event.type === 'input_audio_buffer.speech_started') {
+      console.log(`LATENCY: user speech detected at +${Date.now() - t0}ms`);
+    }
+    if (event.type === 'input_audio_buffer.committed') {
+      console.log(`LATENCY: speech committed at +${Date.now() - t0}ms`);
+    }
+    if (event.type === 'response.created') {
+      console.log(`LATENCY: xAI started generating at +${Date.now() - t0}ms`);
+    }
+    if (event.type === 'response.output_audio.delta' && !firstAudioSent) {
+      firstAudioSent = true;
+      console.log(`LATENCY: first audio chunk at +${Date.now() - t0}ms`);
     }
     
     // Forward audio from xAI to Twilio (amplified, skip while user speaks)
