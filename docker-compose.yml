@@ -1,12 +1,23 @@
-version: '3.8'
 services:
   voice-agent:
     build: .
     ports:
       - "3001:3000"
-    environment:
-      - XAI_API_KEY=${XAI_API_KEY}
-      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
-      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
-      - TWILIO_NUMBER=${TWILIO_NUMBER}
+    volumes:
+      - /root/recordings:/app/recordings
+    env_file:
+      - .env
     restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - "traefik.http.routers.voice-agent.rule=Host(`voice.agentaiq.com`)"
+      - traefik.http.routers.voice-agent.entrypoints=websecure
+      - traefik.http.routers.voice-agent.tls.certresolver=letsencrypt
+      - traefik.http.services.voice-agent.loadbalancer.server.port=3000
+      - traefik.docker.network=dokploy-network
+    networks:
+      - dokploy-network
+
+networks:
+  dokploy-network:
+    external: true
