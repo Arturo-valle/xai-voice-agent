@@ -49,16 +49,9 @@ function pcm16ToUlaw(sample) {
 function amplifyUlawBase64(payload, gain) {
   const buf = Buffer.from(payload, 'base64');
   const out = Buffer.alloc(buf.length);
-  let peak = 0;
-  for (let i = 0; i < buf.length; i++) {
-    const abs = Math.abs(ULAW_TO_PCM[buf[i]]);
-    if (abs > peak) peak = abs;
-  }
-  const normGain = peak > 100 ? (29000 / peak) : gain;
-  const effectiveGain = Math.max(gain, normGain);
   for (let i = 0; i < buf.length; i++) {
     let pcm = ULAW_TO_PCM[buf[i]];
-    pcm = Math.max(-32768, Math.min(32767, Math.round(pcm * effectiveGain)));
+    pcm = Math.max(-32768, Math.min(32767, Math.round(pcm * gain)));
     out[i] = pcm16ToUlaw(pcm);
   }
   return out.toString('base64');
