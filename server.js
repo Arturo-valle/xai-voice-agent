@@ -14,6 +14,47 @@ const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_NUMBER = process.env.TWILIO_NUMBER || '+175****6876';
 const PORT = process.env.PORT || 3000;
+const GAIN = parseFloat(process.env.AUDIO_GAIN) || 2.0; // ponytail: volume multiplier
+
+// µ-law decode table (256 entries)
+const ULAW_TO_PCM = new Int16Array(256);
+for (let i = 0; i < 256; i++) {
+  let val = ~i;
+  let sign = val & 0x80;
+  let exponent = (val >> 4) & 0x07;
+  let mantissa = val & 0x0F;
+  let sample = ((mantissa << 1) + 33) << (exponent + 2);
+  sample -= 0x84;
+  ULAW_TO_PCM[i] = sign ? -sample : sample;
+}
+
+// PCM16 to µ-law encode
+function pcm16ToUlaw(sample) {
+  const BIAS = 0x84;
+  const CLIP = 32635;
+  let sign = 0;
+  if (sample < 0) { sign = 0x80; sample = -sample; }
+  if (sample > CLIP) sample = CLIP;
+  sample += BIAS;
+  let exponent = 7;
+  for (let expMask = 0x4000; exponent > 0; exponent--, expMask >>= 1) {
+    if (sample & expMask) break;
+  }
+  let mantissa = (sample >> (exponent + 3)) & 0x0F;
+  return ~(sign | (exponent << 4) | mantissa) & 0xFF;
+}
+
+// Amplify µ-law audio payload (base64)
+function amplifyUlawBase64(payload, gain) {
+  const buf = Buffer.from(payload, 'base64');
+  const out = Buffer.alloc(buf.length);
+  for (let i = 0; i < buf.length; i++) {
+    let pcm = ULAW_TO_PCM[buf[i]];
+    pcm = Math.max(-32768, Math.min(32767, Math.round(pcm * gain)));
+    out[i] = pcm16ToUlaw(pcm);
+  }
+  return out.toString('base64');
+}
 
 app.get('/', (req, res) => res.json({ status: 'ok', service: 'xai-voice-agent' }));
 
@@ -159,12 +200,12 @@ async function handleMediaStream(twilioWs, url) {
       console.log(`xAI: ${event.type}`);
     }
     
-    // Forward audio from xAI to Twilio
+    // Forward audio from xAI to Twilio (amplified)
     if (event.type === 'response.output_audio.delta' && twilioWs.readyState === WebSocket.OPEN) {
       twilioWs.send(JSON.stringify({
         event: 'media',
         streamSid: streamSid,
-        media: { payload: event.delta }
+        media: { payload: amplifyUlawBase64(event.delta, GAIN) }
       }));
     }
 
