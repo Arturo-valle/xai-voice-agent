@@ -251,12 +251,7 @@ function setupXaiHandlers(xaiWs, twilioWs, t0, state) {
       console.log('Barge-in: cancel + clear');
     }
     if (event.type === 'input_audio_buffer.speech_stopped') {
-      // If user was speaking (server VAD detected), cancel xAI's old response now
-      if (state.userSpeaking && state.responseActive && xaiWs.readyState === WebSocket.OPEN) {
-        xaiWs.send(JSON.stringify({ type: 'response.cancel' }));
-        state.responseActive = false;
-        console.log('Barge-in: cancel xAI response (user finished speaking)');
-      }
+      // Don't cancel here — let xAI generate response naturally
       state.userSpeaking = false;
       state.highEnergyChunks = 0;
     }
