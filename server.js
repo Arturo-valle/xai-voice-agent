@@ -12,18 +12,62 @@ const wss = new WebSocketServer({ server });
 const XAI_API_KEY = process.env.XAI_API_KEY;
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const TWILIO_NUMBER = process.env.TWILIO_NUMBER || '+17543546876';
+const TWILIO_NUMBER = process.env.TWILIO_NUMBER || '+175****6876';
 const PORT = process.env.PORT || 3000;
+
+// ponytail: pre-warmed xAI connections keyed by call attempt ID
+const pendingXai = new Map();
 
 app.get('/', (req, res) => res.json({ status: 'ok', service: 'xai-voice-agent' }));
 
-// TwiML with PCM format (no mulaw conversion needed)
+// TwiML — also pre-connects xAI to shave ~300ms
 app.post('/twiml', (req, res) => {
   const ctx = req.query.ctx ? JSON.parse(decodeURIComponent(req.query.ctx)) : {};
+  const callId = req.query.callId || Date.now().toString(36);
+
+  // Pre-warm xAI connection now (Twilio will WS-connect ~200ms after this)
+  const xaiWs = new WebSocket('wss://api.x.ai/v1/realtime?model=grok-voice-latest', {
+    headers: { 'Authorization': `Bearer ${XAI_API_KEY}` }
+  });
+  xaiWs._ctx = ctx;
+  xaiWs._ready = false;
+
+  xaiWs.on('open', () => {
+    const contextMsg = ctx.nombre
+      ? `Estás llamando a ${ctx.nombre} de ${ctx.empresa || 'una empresa'}. Servicio de interés: ${ctx.servicio || 'marketing digital'}. Preséntate como agente de CreativeMk.`
+      : '';
+
+    xaiWs.send(JSON.stringify({
+      type: 'session.update',
+      session: {
+        voice: 'eve',
+        instructions: `Eres un agente de ventas de CreativeMk en Nicaragua. SIEMPRE habla en español. Sé amable y profesional. ${contextMsg}`,
+        turn_detection: { type: 'server_vad', threshold: 0.4, prefix_padding_ms: 100, silence_duration_ms: 200 },
+        audio: {
+          input: { format: { type: 'audio/pcmu' } },
+          output: { format: { type: 'audio/pcmu' } }
+        }
+      }
+    }));
+
+    xaiWs._ready = true;
+    console.log(`xAI pre-warmed for callId=${callId}`);
+  });
+
+  xaiWs.on('error', (err) => {
+    console.error('xAI pre-warm error:', err.message);
+    pendingXai.delete(callId);
+  });
+
+  pendingXai.set(callId, xaiWs);
+
+  // Cleanup stale entries after 60s
+  setTimeout(() => { pendingXai.delete(callId); xaiWs.close(); }, 60000);
+
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://${req.headers.host}/media-stream">
+    <Stream url="wss://${req.headers.host}/media-stream?callId=${callId}">
       <Parameter name="context" value="${encodeURIComponent(JSON.stringify(ctx))}" />
     </Stream>
   </Connect>
@@ -36,8 +80,9 @@ app.post('/call', async (req, res) => {
   const { to, nombre, empresa, servicio } = req.body;
   if (!to) return res.status(400).json({ error: 'Missing "to"' });
 
+  const callId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const ctx = encodeURIComponent(JSON.stringify({ to, nombre, empresa, servicio }));
-  const webhookUrl = `https://${req.headers.host}/twiml?ctx=${ctx}`;
+  const webhookUrl = `https://${req.headers.host}/twiml?ctx=${ctx}&callId=${callId}`;
 
   const params = new URLSearchParams();
   params.append('To', to);
@@ -75,8 +120,9 @@ app.post('/call-batch', async (req, res) => {
     const lead = leads[i];
     if (!lead.to) { results.push({ error: 'Missing number' }); continue; }
 
+    const callId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     const ctx = encodeURIComponent(JSON.stringify(lead));
-    const webhookUrl = `https://${req.headers.host}/twiml?ctx=${ctx}`;
+    const webhookUrl = `https://${req.headers.host}/twiml?ctx=${ctx}&callId=${callId}`;
 
     const params = new URLSearchParams();
     params.append('To', lead.to);
@@ -112,6 +158,7 @@ wss.on('connection', (ws, req) => {
 });
 
 async function handleMediaStream(twilioWs, url) {
+  const t0 = Date.now();
   console.log('Twilio Media Stream connected');
 
   let xaiWs = null;
@@ -123,15 +170,24 @@ async function handleMediaStream(twilioWs, url) {
     try { context = JSON.parse(decodeURIComponent(ctxParam)); } catch {}
   }
 
-  // Connect to xAI
-  xaiWs = new WebSocket('wss://api.x.ai/v1/realtime?model=grok-voice-latest', {
-    headers: { 'Authorization': `Bearer ${XAI_API_KEY}` }
-  });
+  const callId = url.searchParams.get('callId');
 
-  xaiWs.on('open', () => {
-    console.log('Connected to xAI');
-    
-    const contextMsg = context.nombre 
+  // Try to reuse pre-warmed xAI connection
+  if (callId && pendingXai.has(callId)) {
+    xaiWs = pendingXai.get(callId);
+    pendingXai.delete(callId);
+    console.log(`Reusing pre-warmed xAI (${Date.now() - t0}ms)`);
+  } else {
+    // Fallback: connect now
+    xaiWs = new WebSocket('wss://api.x.ai/v1/realtime?model=grok-voice-latest', {
+      headers: { 'Authorization': `Bearer ${XAI_API_KEY}` }
+    });
+    await new Promise((resolve, reject) => {
+      xaiWs.on('open', resolve);
+      xaiWs.on('error', reject);
+    });
+
+    const contextMsg = context.nombre
       ? `Estás llamando a ${context.nombre} de ${context.empresa || 'una empresa'}. Servicio de interés: ${context.servicio || 'marketing digital'}. Preséntate como agente de CreativeMk.`
       : '';
 
@@ -140,17 +196,26 @@ async function handleMediaStream(twilioWs, url) {
       session: {
         voice: 'eve',
         instructions: `Eres un agente de ventas de CreativeMk en Nicaragua. SIEMPRE habla en español. Sé amable y profesional. ${contextMsg}`,
-        turn_detection: { type: 'server_vad' },
+        turn_detection: { type: 'server_vad', threshold: 0.4, prefix_padding_ms: 100, silence_duration_ms: 200 },
         audio: {
           input: { format: { type: 'audio/pcmu' } },
           output: { format: { type: 'audio/pcmu' } }
         }
       }
     }));
+    console.log(`xAI fresh connect (${Date.now() - t0}ms)`);
+  }
 
+  // Send response.create to trigger agent greeting immediately
+  if (xaiWs.readyState === WebSocket.OPEN) {
     xaiWs.send(JSON.stringify({ type: 'response.create' }));
-    console.log('Session configured, response.create sent');
-  });
+    console.log(`response.create sent (${Date.now() - t0}ms)`);
+  } else {
+    xaiWs.on('open', () => {
+      xaiWs.send(JSON.stringify({ type: 'response.create' }));
+      console.log(`response.create sent (delayed, ${Date.now() - t0}ms)`);
+    });
+  }
 
   xaiWs.on('message', (data) => {
     const event = JSON.parse(data.toString());
@@ -159,7 +224,7 @@ async function handleMediaStream(twilioWs, url) {
       console.log(`xAI: ${event.type}`);
     }
     
-    // Forward audio from xAI to Twilio (PCM passthrough)
+    // Forward audio from xAI to Twilio
     if (event.type === 'response.output_audio.delta' && twilioWs.readyState === WebSocket.OPEN) {
       twilioWs.send(JSON.stringify({
         event: 'media',
@@ -186,10 +251,9 @@ async function handleMediaStream(twilioWs, url) {
         break;
       case 'start':
         streamSid = msg.start.streamSid;
-        console.log(`Stream started: ${streamSid}`);
+        console.log(`Stream started: ${streamSid} (${Date.now() - t0}ms)`);
         break;
       case 'media':
-        // Forward audio from Twilio to xAI (PCM passthrough)
         if (xaiWs?.readyState === WebSocket.OPEN) {
           xaiWs.send(JSON.stringify({
             type: 'input_audio_buffer.append',
