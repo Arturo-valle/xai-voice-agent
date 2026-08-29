@@ -162,6 +162,7 @@ wss.on('connection', (ws, req) => {
 });
 
 async function handleMediaStream(twilioWs, url) {
+  const t0 = Date.now();
   console.log('Twilio Media Stream connected');
 
   let xaiWs = null;
