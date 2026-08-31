@@ -367,6 +367,32 @@ app.post('/call-batch', async (req, res) => {
   res.json({ total: leads.length, successful: results.filter(r => r.success).length, results });
 });
 
+// Save lead to external API
+app.post('/save-lead', async (req, res) => {
+  const { nombre, telefono, empresa, servicio, notas } = req.body;
+  
+  try {
+    const resp = await fetch('https://xai-leads-api.el-molino.workers.dev/leads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nombre: nombre || 'Sin nombre',
+        telefono: telefono || 'Desconocido',
+        empresa: empresa || '',
+        servicio: servicio || '',
+        notas: notas || '',
+        origen: 'voice-agent'
+      })
+    });
+    
+    const data = await resp.json();
+    res.json({ success: true, lead: data });
+  } catch (err) {
+    console.error('Error saving lead:', err.message);
+    res.status(500).json({ error: 'Failed to save lead' });
+  }
+});
+
 // WebSocket handler
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
