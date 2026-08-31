@@ -86,7 +86,7 @@ async function endCall(callSid) {
 // Configure xAI session and send greeting
 function configureXaiSession(xaiWs, ctx) {
   const contextMsg = ctx.nombre
-    ? `\n\nCONTEXTO DE LA LLAMADA ACTUAL:\n- Lead: ${ctx.nombre}\n- Empresa: ${ctx.empresa || 'No especificada'}\n- Servicio de interés: ${ctx.servicio || 'No especificado'}\n- Número: ${ctx.to || 'No disponible'}`
+    ? `\n\nCURRENT CALL CONTEXT:\n- Prospect: ${ctx.nombre}\n- Company: ${ctx.empresa || 'Not specified'}\n- Service interest: ${ctx.servicio || 'Not specified'}\n- Phone: ${ctx.to || 'Not available'}`
     : '';
 
   const tools = [];
