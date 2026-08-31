@@ -400,51 +400,80 @@ app.get('/leads', (req, res) => {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Leads Dashboard — Arturo Ordóñez</title>
+<title>Leads — Arturo Ordóñez</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
-  body{font-family:system-ui,-apple-system,sans-serif;background:#0a0a0a;color:#e0e0e0;min-height:100vh;padding:2rem}
-  .container{max-width:900px;margin:0 auto}
-  h1{font-size:1.5rem;margin-bottom:.5rem;color:#fff}
-  .subtitle{color:#888;margin-bottom:2rem;font-size:.875rem}
-  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem;margin-bottom:2rem}
-  .stat{background:#141414;border:1px solid #222;border-radius:12px;padding:1rem;text-align:center}
-  .stat .num{font-size:2rem;font-weight:700;color:#fff}
-  .stat .label{font-size:.75rem;color:#888;margin-top:.25rem}
-  .stat.hot .num{color:#22c55e} .stat.warm .num{color:#eab308} .stat.cold .num{color:#ef4444}
-  table{width:100%;border-collapse:collapse;background:#141414;border-radius:12px;overflow:hidden}
-  th{background:#1a1a1a;padding:.75rem 1rem;text-align:left;font-size:.8rem;color:#888;text-transform:uppercase;letter-spacing:.05em}
-  td{padding:.75rem 1rem;border-top:1px solid #222;font-size:.85rem}
-  tr:hover td{background:#1a1a1a}
-  .badge{display:inline-block;padding:.15rem .5rem;border-radius:6px;font-size:.7rem;font-weight:600}
-  .badge.hot{background:#166534;color:#86efac} .badge.warm{background:#854d0e;color:#fde047} .badge.cold{background:#991b1b;color:#fca5a5}
-  .empty{text-align:center;padding:3rem;color:#555}
-  .refresh{margin-bottom:1rem}
-  .refresh button{padding:.5rem 1rem;background:#2563eb;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.85rem}
-  .refresh button:hover{background:#1d4ed8}
-  .notes{max-width:250px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  @media(max-width:600px){.stats{grid-template-columns:1fr 1fr}td,th{padding:.5rem;font-size:.75rem}}
+  body{font-family:system-ui,-apple-system,sans-serif;background:#09090b;color:#e4e4e7;min-height:100vh}
+  .top{background:#18181b;border-bottom:1px solid #27272a;padding:1.5rem 2rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem}
+  .top h1{font-size:1.25rem;color:#fff;font-weight:600}
+  .top .sub{color:#71717a;font-size:.8rem}
+  .top button{padding:.5rem 1.25rem;background:#2563eb;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.8rem;font-weight:500;transition:background .15s}
+  .top button:hover{background:#1d4ed8}
+  .wrap{max-width:1100px;margin:0 auto;padding:1.5rem 2rem}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:.75rem;margin-bottom:1.5rem}
+  .kpi{background:#18181b;border:1px solid #27272a;border-radius:10px;padding:1rem 1.25rem}
+  .kpi .v{font-size:1.75rem;font-weight:700;color:#fafafa}
+  .kpi .l{font-size:.7rem;color:#71717a;text-transform:uppercase;letter-spacing:.06em;margin-top:.15rem}
+  .kpi.hot .v{color:#4ade80} .kpi.warm .v{color:#facc15} .kpi.cold .v{color:#f87171}
+  .list{display:flex;flex-direction:column;gap:.5rem}
+  .card{background:#18181b;border:1px solid #27272a;border-radius:10px;overflow:hidden;transition:border-color .15s}
+  .card:hover{border-color:#3f3f46}
+  .card-head{display:grid;grid-template-columns:1fr auto auto auto;gap:1rem;align-items:center;padding:1rem 1.25rem;cursor:pointer;user-select:none}
+  .card-head .name{font-weight:600;color:#fafafa;font-size:.95rem}
+  .card-head .phone{color:#a1a1aa;font-size:.8rem;font-family:monospace}
+  .card-head .date{color:#52525b;font-size:.75rem;white-space:nowrap}
+  .badge{display:inline-block;padding:.2rem .6rem;border-radius:6px;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+  .badge.hot{background:#14532d;color:#86efac} .badge.warm{background:#713f12;color:#fde047} .badge.cold{background:#7f1d1d;color:#fca5a5}
+  .card-body{display:none;padding:0 1.25rem 1.25rem;border-top:1px solid #27272a}
+  .card.open .card-body{display:block}
+  .meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.75rem;margin:1rem 0}
+  .meta .f{background:#09090b;border-radius:8px;padding:.6rem .8rem}
+  .meta .f .fl{font-size:.65rem;color:#52525b;text-transform:uppercase;letter-spacing:.05em}
+  .meta .f .fv{font-size:.85rem;color:#e4e4e7;margin-top:.2rem}
+  .transcript{background:#09090b;border-radius:8px;padding:1rem;margin-top:.75rem;max-height:400px;overflow-y:auto}
+  .transcript .line{margin-bottom:.5rem;font-size:.82rem;line-height:1.5}
+  .transcript .line:last-child{margin-bottom:0}
+  .transcript .u{color:#60a5fa} .transcript .b{color:#a78bfa}
+  .transcript .role{font-weight:600;font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;margin-right:.4rem}
+  .empty{text-align:center;padding:4rem 2rem;color:#3f3f46;font-size:.9rem}
+  .arrow{color:#52525b;transition:transform .2s;font-size:.8rem}
+  .card.open .arrow{transform:rotate(90deg)}
+  @media(max-width:700px){.kpis{grid-template-columns:1fr 1fr}.card-head{grid-template-columns:1fr auto;gap:.5rem}.card-head .phone,.card-head .date{grid-column:1}}
 </style>
 </head>
 <body>
-<div class="container">
-  <h1>📋 Leads Dashboard</h1>
-  <p class="subtitle">Arturo Ordóñez — Voice Agent Leads</p>
-  <div class="refresh"><button onclick="loadLeads()">↻ Refresh</button></div>
-  <div class="stats" id="stats"></div>
-  <table>
-    <thead><tr><th>Name</th><th>Phone</th><th>Company</th><th>Service</th><th>Level</th><th>Date</th><th>Notes</th></tr></thead>
-    <tbody id="leads"><tr><td colspan="7" class="empty">Loading...</td></tr></tbody>
-  </table>
+<div class="top">
+  <div><h1>Leads Dashboard</h1><div class="sub">Arturo Ordóñez — Voice Agent</div></div>
+  <button onclick="loadLeads()">Refresh</button>
+</div>
+<div class="wrap">
+  <div class="kpis" id="kpis"></div>
+  <div class="list" id="list"><div class="empty">Loading...</div></div>
 </div>
 <script>
-function classify(notes){
-  const t=(notes||'').toLowerCase();
-  if(t.includes('high')||t.includes('schedule')||t.includes('meeting')||t.includes('interested'))return 'hot';
-  if(t.includes('medium')||t.includes('follow')||t.includes('think'))return 'warm';
+function classify(n){
+  const t=(n||'').toLowerCase();
+  if(t.includes('schedule')||t.includes('meeting')||t.includes('interested')||t.includes('discovery call')||t.includes('hot'))return 'hot';
+  if(t.includes('follow')||t.includes('think')||t.includes('warm')||t.includes('explore'))return 'warm';
   return 'cold';
 }
-function shortDate(d){try{return new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d}}
+function fmtDate(d){try{return new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d||'-'}}
+function fmtPhone(p){if(!p||p==='Desconocido')return'-';return p}
+function fmtName(n){if(!n||n==='Desconocido'||n==='Sin nombre')return'Unknown';return n}
+function parseTranscript(notes){
+  if(!notes||notes==='Llamada completada sin transcript')return'<div class="line" style="color:#52525b">No transcript available</div>';
+  const parts=notes.split(/\\|\\s*(?=Bot:|Usuario:|User:)/);
+  if(parts.length<=1){
+    return notes.split(/(?<=[.!?])\\s+/).map(s=>'<div class="line">'+s.trim()+'</div>').join('');
+  }
+  return parts.map(p=>{
+    p=p.trim();
+    if(p.startsWith('Usuario:')||p.startsWith('User:'))return '<div class="line"><span class="role u">User</span>'+p.replace(/^(Usuario:|User:)\\s*/,'')+'</div>';
+    if(p.startsWith('Bot:'))return '<div class="line"><span class="role b">Agent</span>'+p.replace(/^Bot:\\s*/,'')+'</div>';
+    return '<div class="line">'+p+'</div>';
+  }).join('');
+}
+function toggle(el){el.closest('.card').classList.toggle('open')}
 async function loadLeads(){
   try{
     const r=await fetch('https://xai-leads-api.el-molino.workers.dev/leads');
@@ -453,17 +482,33 @@ async function loadLeads(){
     const hot=leads.filter(l=>classify(l.notas)==='hot').length;
     const warm=leads.filter(l=>classify(l.notas)==='warm').length;
     const cold=leads.filter(l=>classify(l.notas)==='cold').length;
-    document.getElementById('stats').innerHTML=
-      '<div class="stat"><div class="num">'+leads.length+'</div><div class="label">Total</div></div>'+
-      '<div class="stat hot"><div class="num">'+hot+'</div><div class="label">Hot</div></div>'+
-      '<div class="stat warm"><div class="num">'+warm+'</div><div class="label">Warm</div></div>'+
-      '<div class="stat cold"><div class="num">'+cold+'</div><div class="label">Cold</div></div>';
-    if(!leads.length){document.getElementById('leads').innerHTML='<tr><td colspan="7" class="empty">No leads yet</td></tr>';return}
-    document.getElementById('leads').innerHTML=leads.map(l=>{
+    document.getElementById('kpis').innerHTML=
+      '<div class="kpi"><div class="v">'+leads.length+'</div><div class="l">Total Leads</div></div>'+
+      '<div class="kpi hot"><div class="v">'+hot+'</div><div class="l">Hot</div></div>'+
+      '<div class="kpi warm"><div class="v">'+warm+'</div><div class="l">Warm</div></div>'+
+      '<div class="kpi cold"><div class="v">'+cold+'</div><div class="l">Cold</div></div>';
+    if(!leads.length){document.getElementById('list').innerHTML='<div class="empty">No leads yet. Make a call to get started.</div>';return}
+    document.getElementById('list').innerHTML=leads.map(l=>{
       const level=classify(l.notas);
-      return '<tr><td><strong>'+(l.nombre||'-')+'</strong></td><td>'+(l.telefono||'-')+'</td><td>'+(l.empresa||'-')+'</td><td>'+(l.servicio||'-')+'</td><td><span class="badge '+level+'">'+level+'</span></td><td>'+shortDate(l.fecha)+'</td><td class="notes" title="'+(l.notas||'').replace(/"/g,'&quot;')+'">'+(l.notas||'-')+'</td></tr>'
+      return '<div class="card" onclick="toggle(this)">'+
+        '<div class="card-head">'+
+          '<div class="name">'+fmtName(l.nombre)+'</div>'+
+          '<div class="phone">'+fmtPhone(l.telefono)+'</div>'+
+          '<span class="badge '+level+'">'+level+'</span>'+
+          '<div class="date"><span class="arrow">▶</span> '+fmtDate(l.fecha)+'</div>'+
+        '</div>'+
+        '<div class="card-body">'+
+          '<div class="meta">'+
+            '<div class="f"><div class="fl">Company</div><div class="fv">'+(l.empresa||'-')+'</div></div>'+
+            '<div class="f"><div class="fl">Service</div><div class="fv">'+(l.servicio||'-')+'</div></div>'+
+            '<div class="f"><div class="fl">Phone</div><div class="fv">'+fmtPhone(l.telefono)+'</div></div>'+
+            '<div class="f"><div class="fl">Source</div><div class="fv">'+(l.origen||'-')+'</div></div>'+
+          '</div>'+
+          '<div class="transcript">'+parseTranscript(l.notas)+'</div>'+
+        '</div>'+
+      '</div>';
     }).join('');
-  }catch(e){document.getElementById('leads').innerHTML='<tr><td colspan="7" class="empty">Error loading leads</td></tr>'}
+  }catch(e){document.getElementById('list').innerHTML='<div class="empty">Error loading leads</div>'}
 }
 loadLeads();
 </script>
