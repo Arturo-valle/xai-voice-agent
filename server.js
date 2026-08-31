@@ -98,6 +98,24 @@ function configureXaiSession(xaiWs, ctx) {
     });
   }
 
+  // Register save_lead as a function tool
+  tools.push({
+    type: 'function',
+    name: 'save_lead',
+    description: 'Save lead information after the call. Must be called at the end of every call.',
+    parameters: {
+      type: 'object',
+      properties: {
+        nombre: { type: 'string', description: 'Lead full name' },
+        telefono: { type: 'string', description: 'Phone number with country code' },
+        empresa: { type: 'string', description: 'Business/company name' },
+        servicio: { type: 'string', description: 'Service of interest' },
+        notas: { type: 'string', description: 'Summary of conversation, interest level, next steps' }
+      },
+      required: ['nombre', 'telefono', 'notas']
+    }
+  });
+
   xaiWs.send(JSON.stringify({
     type: 'session.update',
     session: {
@@ -548,6 +566,38 @@ function setupXaiHandlers(xaiWs, twilioWs, t0, state) {
     }
     if (event.type === 'response.done') {
       state.responseActive = false;
+      // Handle function calls in the response
+      if (event.response?.output) {
+        for (const item of event.response.output) {
+          if (item.type === 'function_call' && item.name === 'save_lead') {
+            console.log('save_lead called:', item.arguments);
+            try {
+              const args = JSON.parse(item.arguments);
+              fetch('https://voice.agentaiq.com/save-lead', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(args)
+              }).then(r => r.json()).then(d => {
+                console.log('Lead saved:', d);
+                // Send result back to xAI
+                if (xaiWs.readyState === WebSocket.OPEN) {
+                  xaiWs.send(JSON.stringify({
+                    type: 'conversation.item.create',
+                    item: {
+                      type: 'function_call_output',
+                      call_id: item.call_id,
+                      output: JSON.stringify({ success: true, message: 'Lead saved successfully' })
+                    }
+                  }));
+                  xaiWs.send(JSON.stringify({ type: 'response.create' }));
+                }
+              }).catch(err => console.error('Save lead error:', err));
+            } catch (err) {
+              console.error('Parse error:', err);
+            }
+          }
+        }
+      }
     }
     if (event.type === 'response.output_audio.delta' && !state.firstAudioSent) {
       state.firstAudioSent = true;
