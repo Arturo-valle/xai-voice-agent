@@ -393,6 +393,84 @@ app.post('/save-lead', async (req, res) => {
   }
 });
 
+// Leads dashboard
+app.get('/leads', (req, res) => {
+  res.type('html').send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leads Dashboard — Arturo Ordóñez</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:system-ui,-apple-system,sans-serif;background:#0a0a0a;color:#e0e0e0;min-height:100vh;padding:2rem}
+  .container{max-width:900px;margin:0 auto}
+  h1{font-size:1.5rem;margin-bottom:.5rem;color:#fff}
+  .subtitle{color:#888;margin-bottom:2rem;font-size:.875rem}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem;margin-bottom:2rem}
+  .stat{background:#141414;border:1px solid #222;border-radius:12px;padding:1rem;text-align:center}
+  .stat .num{font-size:2rem;font-weight:700;color:#fff}
+  .stat .label{font-size:.75rem;color:#888;margin-top:.25rem}
+  .stat.hot .num{color:#22c55e} .stat.warm .num{color:#eab308} .stat.cold .num{color:#ef4444}
+  table{width:100%;border-collapse:collapse;background:#141414;border-radius:12px;overflow:hidden}
+  th{background:#1a1a1a;padding:.75rem 1rem;text-align:left;font-size:.8rem;color:#888;text-transform:uppercase;letter-spacing:.05em}
+  td{padding:.75rem 1rem;border-top:1px solid #222;font-size:.85rem}
+  tr:hover td{background:#1a1a1a}
+  .badge{display:inline-block;padding:.15rem .5rem;border-radius:6px;font-size:.7rem;font-weight:600}
+  .badge.hot{background:#166534;color:#86efac} .badge.warm{background:#854d0e;color:#fde047} .badge.cold{background:#991b1b;color:#fca5a5}
+  .empty{text-align:center;padding:3rem;color:#555}
+  .refresh{margin-bottom:1rem}
+  .refresh button{padding:.5rem 1rem;background:#2563eb;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.85rem}
+  .refresh button:hover{background:#1d4ed8}
+  .notes{max-width:250px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  @media(max-width:600px){.stats{grid-template-columns:1fr 1fr}td,th{padding:.5rem;font-size:.75rem}}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>📋 Leads Dashboard</h1>
+  <p class="subtitle">Arturo Ordóñez — Voice Agent Leads</p>
+  <div class="refresh"><button onclick="loadLeads()">↻ Refresh</button></div>
+  <div class="stats" id="stats"></div>
+  <table>
+    <thead><tr><th>Name</th><th>Phone</th><th>Company</th><th>Service</th><th>Level</th><th>Date</th><th>Notes</th></tr></thead>
+    <tbody id="leads"><tr><td colspan="7" class="empty">Loading...</td></tr></tbody>
+  </table>
+</div>
+<script>
+function classify(notes){
+  const t=(notes||'').toLowerCase();
+  if(t.includes('high')||t.includes('schedule')||t.includes('meeting')||t.includes('interested'))return 'hot';
+  if(t.includes('medium')||t.includes('follow')||t.includes('think'))return 'warm';
+  return 'cold';
+}
+function shortDate(d){try{return new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d}}
+async function loadLeads(){
+  try{
+    const r=await fetch('https://xai-leads-api.el-molino.workers.dev/leads');
+    const d=await r.json();
+    const leads=(d.leads||[]).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+    const hot=leads.filter(l=>classify(l.notas)==='hot').length;
+    const warm=leads.filter(l=>classify(l.notas)==='warm').length;
+    const cold=leads.filter(l=>classify(l.notas)==='cold').length;
+    document.getElementById('stats').innerHTML=
+      '<div class="stat"><div class="num">'+leads.length+'</div><div class="label">Total</div></div>'+
+      '<div class="stat hot"><div class="num">'+hot+'</div><div class="label">Hot</div></div>'+
+      '<div class="stat warm"><div class="num">'+warm+'</div><div class="label">Warm</div></div>'+
+      '<div class="stat cold"><div class="num">'+cold+'</div><div class="label">Cold</div></div>';
+    if(!leads.length){document.getElementById('leads').innerHTML='<tr><td colspan="7" class="empty">No leads yet</td></tr>';return}
+    document.getElementById('leads').innerHTML=leads.map(l=>{
+      const level=classify(l.notas);
+      return '<tr><td><strong>'+(l.nombre||'-')+'</strong></td><td>'+(l.telefono||'-')+'</td><td>'+(l.empresa||'-')+'</td><td>'+(l.servicio||'-')+'</td><td><span class="badge '+level+'">'+level+'</span></td><td>'+shortDate(l.fecha)+'</td><td class="notes" title="'+(l.notas||'').replace(/"/g,'&quot;')+'">'+(l.notas||'-')+'</td></tr>'
+    }).join('');
+  }catch(e){document.getElementById('leads').innerHTML='<tr><td colspan="7" class="empty">Error loading leads</td></tr>'}
+}
+loadLeads();
+</script>
+</body>
+</html>`);
+});
+
 // WebSocket handler
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
