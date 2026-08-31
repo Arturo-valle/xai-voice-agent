@@ -16,6 +16,10 @@ const TWILIO_NUMBER = process.env.TWILIO_NUMBER || '+175****6876';
 const PORT = process.env.PORT || 3000;
 const GAIN = parseFloat(process.env.AUDIO_GAIN) || 2.0;
 
+// Timeout configuration (milliseconds)
+const CALL_TIMEOUT_MS = parseInt(process.env.CALL_TIMEOUT_MS) || 90000;  // 90s max call duration
+const SILENCE_TIMEOUT_MS = parseInt(process.env.SILENCE_TIMEOUT_MS) || 15000;  // 15s silence = hang up
+
 // Pre-warmed xAI connections keyed by CallSid
 const prewarmedXai = new Map();
 
@@ -55,6 +59,28 @@ function amplifyUlawBase64(payload, gain) {
     out[i] = pcm16ToUlaw(pcm);
   }
   return out.toString('base64');
+}
+
+// End a call via Twilio API
+async function endCall(callSid) {
+  if (!callSid) return;
+  try {
+    const resp = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Calls/${callSid}.json`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Basic ' + btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'Status=completed',
+      }
+    );
+    const data = await resp.json();
+    console.log(`Call ${callSid} ended via Twilio API: ${data.status}`);
+  } catch (err) {
+    console.error(`Failed to end call ${callSid}:`, err.message);
+  }
 }
 
 // Configure xAI session and send greeting
@@ -148,6 +174,7 @@ app.post('/call', async (req, res) => {
   params.append('From', TWILIO_NUMBER);
   params.append('Url', webhookUrl);
   params.append('Method', 'POST');
+  params.append('Timeout', '55');  // Max ring time before answer
 
   const resp = await fetch(
     `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Calls.json`,
@@ -187,6 +214,7 @@ app.post('/call-batch', async (req, res) => {
     params.append('From', TWILIO_NUMBER);
     params.append('Url', webhookUrl);
     params.append('Method', 'POST');
+    params.append('Timeout', '55');
 
     const resp = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Calls.json`,
@@ -249,6 +277,7 @@ function setupXaiHandlers(xaiWs, twilioWs, t0, state) {
 
     if (event.type === 'input_audio_buffer.speech_started') {
       state.userSpeaking = true;
+      state.lastAudioTime = Date.now();  // Reset silence timer
       if (state.responseActive && xaiWs.readyState === WebSocket.OPEN) {
         xaiWs.send(JSON.stringify({ type: 'response.cancel' }));
         state.responseActive = false;
@@ -303,8 +332,45 @@ async function handleMediaStream(twilioWs, url) {
   console.log('Twilio Media Stream connected');
 
   let xaiWs = null;
+  let callSid = null;
   let context = {};
-  const state = { streamSid: null, userSpeaking: false, firstAudioSent: false, responseActive: false, highEnergyChunks: 0, lastBargeIn: 0 };
+  const state = { 
+    streamSid: null, 
+    userSpeaking: false, 
+    firstAudioSent: false, 
+    responseActive: false, 
+    highEnergyChunks: 0, 
+    lastBargeIn: 0,
+    lastAudioTime: Date.now(),  // Track last audio for silence detection
+    callTimeout: null,
+    silenceTimeout: null
+  };
+
+  // Function to clean up and end call
+  function cleanup(reason) {
+    console.log(`Call cleanup: ${reason} (CallSid=${callSid})`);
+    if (state.callTimeout) clearTimeout(state.callTimeout);
+    if (state.silenceTimeout) clearTimeout(state.silenceTimeout);
+    if (xaiWs?.readyState === WebSocket.OPEN) xaiWs.close();
+    if (twilioWs.readyState === WebSocket.OPEN) twilioWs.close();
+    if (callSid) endCall(callSid);
+  }
+
+  // Set call timeout (max duration)
+  state.callTimeout = setTimeout(() => {
+    cleanup(`Call timeout (${CALL_TIMEOUT_MS}ms)`);
+  }, CALL_TIMEOUT_MS);
+
+  // Function to reset silence timeout
+  function resetSilenceTimeout() {
+    if (state.silenceTimeout) clearTimeout(state.silenceTimeout);
+    state.silenceTimeout = setTimeout(() => {
+      cleanup(`Silence timeout (${SILENCE_TIMEOUT_MS}ms)`);
+    }, SILENCE_TIMEOUT_MS);
+  }
+
+  // Start silence monitoring
+  resetSilenceTimeout();
 
   twilioWs.on('message', async (data) => {
     const msg = JSON.parse(data.toString());
@@ -316,7 +382,7 @@ async function handleMediaStream(twilioWs, url) {
 
       case 'start':
         state.streamSid = msg.start.streamSid;
-        const callSid = msg.start.callSid;
+        callSid = msg.start.callSid;
         console.log(`Stream started: ${state.streamSid} (CallSid=${callSid}) [+${Date.now() - t0}ms]`);
 
         // Try pre-warmed xAI connection
@@ -342,6 +408,10 @@ async function handleMediaStream(twilioWs, url) {
         if (msg.media.track === 'inbound' && xaiWs?.readyState === WebSocket.OPEN) {
           const audioBuf = Buffer.from(msg.media.payload, 'base64');
           xaiWs.send(audioBuf);
+
+          // Reset silence timeout on any audio
+          state.lastAudioTime = Date.now();
+          resetSilenceTimeout();
 
           // Server-side VAD: clear Twilio immediately, but don't cancel xAI yet
           if (state.responseActive && !state.userSpeaking) {
@@ -373,17 +443,20 @@ async function handleMediaStream(twilioWs, url) {
 
       case 'stop':
         console.log('Stream stopped');
-        if (xaiWs?.readyState === WebSocket.OPEN) xaiWs.close();
+        cleanup('Stream stopped by Twilio');
         break;
     }
   });
 
   twilioWs.on('close', () => {
     console.log('Twilio disconnected');
-    if (xaiWs?.readyState === WebSocket.OPEN) xaiWs.close();
+    cleanup('Twilio WebSocket closed');
   });
 
-  twilioWs.on('error', (err) => console.error('Twilio WS error:', err.message));
+  twilioWs.on('error', (err) => {
+    console.error('Twilio WS error:', err.message);
+    cleanup('Twilio WebSocket error');
+  });
 }
 
 server.listen(PORT, () => console.log(`Voice Agent running on port ${PORT}`));
