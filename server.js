@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 3000;
 const GAIN = parseFloat(process.env.AUDIO_GAIN) || 2.0;
 
 // Timeout configuration (milliseconds)
-const CALL_TIMEOUT_MS = parseInt(process.env.CALL_TIMEOUT_MS) || 90000;  // 90s max call duration
+const CALL_TIMEOUT_MS = parseInt(process.env.CALL_TIMEOUT_MS) || 300000;  // 5min max call duration
 const SILENCE_TIMEOUT_MS = parseInt(process.env.SILENCE_TIMEOUT_MS) || 15000;  // 15s silence = hang up
 
 // Pre-warmed xAI connections keyed by CallSid
