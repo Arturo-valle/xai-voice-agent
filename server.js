@@ -117,6 +117,136 @@ function configureXaiSession(xaiWs, ctx) {
 
 app.get('/', (req, res) => res.json({ status: 'ok', service: 'xai-voice-agent' }));
 
+// Dashboard
+app.get('/dashboard', (req, res) => {
+  res.type('html').send(`<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voice Agent — Dashboard</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:system-ui,-apple-system,sans-serif;background:#0a0a0a;color:#e0e0e0;min-height:100vh;padding:2rem}
+  .container{max-width:720px;margin:0 auto}
+  h1{font-size:1.5rem;margin-bottom:.5rem;color:#fff}
+  .subtitle{color:#888;margin-bottom:2rem;font-size:.875rem}
+  .card{background:#141414;border:1px solid #222;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem}
+  .card h2{font-size:1rem;margin-bottom:1rem;color:#ccc;display:flex;align-items:center;gap:.5rem}
+  .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+  .status-dot.ok{background:#22c55e} .status-dot.err{background:#ef4444} .status-dot.loading{background:#eab308}
+  label{display:block;font-size:.8rem;color:#888;margin-bottom:.35rem;margin-top:.75rem}
+  label:first-child{margin-top:0}
+  input,textarea,select{width:100%;padding:.6rem;background:#1a1a1a;border:1px solid #333;border-radius:8px;color:#e0e0e0;font-size:.9rem;outline:none}
+  input:focus,textarea:focus{border-color:#555}
+  textarea{resize:vertical;min-height:60px}
+  button{margin-top:1rem;padding:.65rem 1.5rem;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:.9rem;cursor:pointer;font-weight:500}
+  button:hover{background:#1d4ed8}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .result{margin-top:1rem;padding:1rem;background:#111;border-radius:8px;font-family:monospace;font-size:.8rem;white-space:pre-wrap;max-height:200px;overflow-y:auto;display:none}
+  .result.show{display:block}
+  .result.ok{border-left:3px solid #22c55e}
+  .result.err{border-left:3px solid #ef4444}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
+  @media(max-width:500px){.grid{grid-template-columns:1fr}}
+  .meta{font-size:.75rem;color:#666;margin-top:.5rem}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🎙️ Voice Agent</h1>
+  <p class="subtitle">xAI + Twilio · CreativeMk</p>
+
+  <div class="card">
+    <h2><span class="status-dot loading" id="statusDot"></span> Estado del Servicio</h2>
+    <div id="statusInfo" style="font-size:.85rem;color:#888">Verificando...</div>
+  </div>
+
+  <div class="card">
+    <h2>📞 Hacer Llamada de Prueba</h2>
+    <div class="grid">
+      <div>
+        <label>Teléfono (con código país)</label>
+        <input id="to" type="tel" placeholder="+50583598517">
+      </div>
+      <div>
+        <label>Nombre del prospecto</label>
+        <input id="nombre" type="text" placeholder="Juan Pérez">
+      </div>
+      <div>
+        <label>Empresa</label>
+        <input id="empresa" type="text" placeholder="Acme Corp">
+      </div>
+      <div>
+        <label>Servicio de interés</label>
+        <input id="servicio" type="text" placeholder="Marketing digital">
+      </div>
+    </div>
+    <button id="callBtn" onclick="makeCall()">Llamar</button>
+    <div id="callResult" class="result"></div>
+  </div>
+
+  <div class="card">
+    <h2>📋 Info Técnica</h2>
+    <div id="techInfo" style="font-size:.8rem;color:#666">Cargando...</div>
+  </div>
+
+  <p class="meta">Voice Agent v1.0 · Puerto ${PORT}</p>
+</div>
+<script>
+async function checkStatus(){
+  const dot=document.getElementById('statusDot');
+  const info=document.getElementById('statusInfo');
+  try{
+    const r=await fetch('/');
+    const d=await r.json();
+    dot.className='status-dot ok';
+    info.innerHTML='<span style="color:#22c55e">● Online</span> — '+d.service;
+  }catch(e){
+    dot.className='status-dot err';
+    info.innerHTML='<span style="color:#ef4444">● Offline</span> — '+e.message;
+  }
+}
+
+async function loadTech(){
+  const el=document.getElementById('techInfo');
+  try{
+    const r=await fetch('/');
+    const d=await r.json();
+    el.innerHTML='Servicio: '+d.service+'<br>Endpoint: /<br>Métodos: POST /call, POST /call-batch, POST /twiml<br>WebSocket: /media-stream';
+  }catch(e){el.textContent='Error: '+e.message}
+}
+
+async function makeCall(){
+  const btn=document.getElementById('callBtn');
+  const res=document.getElementById('callResult');
+  const to=document.getElementById('to').value.trim();
+  if(!to){res.className='result err show';res.textContent='Falta número de teléfono';return}
+  btn.disabled=true;btn.textContent='Llamando...';
+  res.className='result show';res.textContent='Enviando solicitud...';
+  try{
+    const r=await fetch('/call',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      to,
+      nombre:document.getElementById('nombre').value.trim(),
+      empresa:document.getElementById('empresa').value.trim(),
+      servicio:document.getElementById('servicio').value.trim()
+    })});
+    const d=await r.json();
+    res.className='result '+(d.success?'ok':'err')+' show';
+    res.textContent=JSON.stringify(d,null,2);
+  }catch(e){
+    res.className='result err show';res.textContent='Error: '+e.message;
+  }
+  btn.disabled=false;btn.textContent='Llamar';
+}
+
+checkStatus();loadTech();
+setInterval(checkStatus,30000);
+</script>
+</body>
+</html>`);
+});
+
 // TwiML — also pre-connects xAI
 app.post('/twiml', (req, res) => {
   const ctx = req.query.ctx ? JSON.parse(decodeURIComponent(req.query.ctx)) : {};
