@@ -573,10 +573,17 @@ function setupXaiHandlers(xaiWs, twilioWs, t0, state) {
             console.log('save_lead called:', item.arguments);
             try {
               const args = JSON.parse(item.arguments);
-              fetch('https://voice.agentaiq.com/save-lead', {
+              fetch('https://xai-leads-api.el-molino.workers.dev/leads', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(args)
+                body: JSON.stringify({
+                  nombre: args.nombre || 'Sin nombre',
+                  telefono: args.telefono || 'Desconocido',
+                  empresa: args.empresa || '',
+                  servicio: args.servicio || '',
+                  notas: args.notas || '',
+                  origen: 'voice-agent'
+                })
               }).then(r => r.json()).then(d => {
                 console.log('Lead saved:', d);
                 // Send result back to xAI
